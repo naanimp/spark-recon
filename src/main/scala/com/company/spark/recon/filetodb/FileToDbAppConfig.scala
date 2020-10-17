@@ -38,7 +38,6 @@ object FileToDbAppConfig {
 
   val fileToDBReconConfig = config.getConfigList("file-to-db-recon-config").asScala.map(x => {
     val files = x.getStringList("files").asScala.toList
-    val keyColumns = x.getStringList("key-columns").asScala.toList
     val src = getFileInfo(x.getConfig("src"))
     val targetPGdb = getDBInfo(x.getConfig("target-pgdb"))
     val targetDB2db = getDBInfo(x.getConfig("target-db2db"))
