@@ -106,38 +106,40 @@ object SparkWindowFunJob extends LazyLogging with Serializable {
       ("a@gmail.com", 0.1, "2020-12-05 03:04:00", "2020-12-02", "tx-id-2")
     ).toDF("email", "pscore", "transaction_datetm", "transaction_date", "transaction_id")
 
-//    3
-//    4
-//    4
-//    3
-//    2
-//    1
-//    val expectedDF = Seq(
-//      ("a@gmail.com", "2020-12-02 03:04:00", "1", "tx-id-1")
-//    ).toDF("email", "transaction_datetm", "vel_accountEmailAddress_1day_count", "transaction_id")
-//      .orderBy($"transaction_id")
-//      .select("transaction_id", "transaction_datetm", "email", "vel_accountEmailAddress_1day_count")
+    //    3
+    //    4
+    //    4
+    //    3
+    //    2
+    //    1
+    //    val expectedDF = Seq(
+    //      ("a@gmail.com", "2020-12-02 03:04:00", "1", "tx-id-1")
+    //    ).toDF("email", "transaction_datetm", "vel_accountEmailAddress_1day_count", "transaction_id")
+    //      .orderBy($"transaction_id")
+    //      .select("transaction_id", "transaction_datetm", "email", "vel_accountEmailAddress_1day_count")
 
-//    val overCategory = Window.partitionBy('transaction_id).orderBy('transaction_datetm).rowsBetween(
-//      Window.currentRow, Window.unboundedFollowing)
-//
-//    val sudf = udf((str:Seq[String]) => TextParser.filterShortWords2(str))
-//    df.printSchema()
-//    val df2 = df.withColumn("transaction_datetm", to_timestamp(col("transaction_datetm"), "yyyy-MM-dd HH:mm:ss"))
-//      .withColumn("dates", collect_list('transaction_datetm) over overCategory)
-//      .withColumn("Coutry wise count", sudf('dates))
-//
-//    df2.show(false)
+    //    val overCategory = Window.partitionBy('transaction_id).orderBy('transaction_datetm).rowsBetween(
+    //      Window.currentRow, Window.unboundedFollowing)
+    //
+    //    val sudf = udf((str:Seq[String]) => TextParser.filterShortWords2(str))
+    //    df.printSchema()
+    //    val df2 = df.withColumn("transaction_datetm", to_timestamp(col("transaction_datetm"), "yyyy-MM-dd HH:mm:ss"))
+    //      .withColumn("dates", collect_list('transaction_datetm) over overCategory)
+    //      .withColumn("Coutry wise count", sudf('dates))
+    //
+    //    df2.show(false)
 
 
     val overCategory2 = Window.partitionBy('transaction_id).orderBy('transaction_datetm)
     val df3 = df.withColumn("dates", collect_list('transaction_datetm) over overCategory2)
       .withColumn("count", size('dates).cast("int"))
+      .withColumn("dsds", lit(Array("q", "v")))
     df3.show(false)
     df3.filter('count.gt(1)).show()
 
   }
 }
+
 import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
 import org.joda.time.format.DateTimeFormatter
@@ -148,7 +150,7 @@ object TextParser extends Serializable {
     val formatter = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss")
     val currTxnDate = DateTime.parse(record.head.toString, formatter)
 
-    record.tail.filter( x => {
+    record.tail.filter(x => {
       val txnDate = DateTime.parse(x.toString, formatter)
       currTxnDate.plusDays(30).getMillis > txnDate.getMillis
     }).size

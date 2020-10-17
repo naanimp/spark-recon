@@ -1,0 +1,8 @@
+/.idea/
+/target/
+/recon.iml
+/rows.json
+/*.xml
+.idea/*
+/.idea/libraries/*.xml
+.idea/compiler.xml

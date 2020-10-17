@@ -8,7 +8,7 @@ case class FileToDBFileInfo(sheets: List[String], basePath: String, reconColumns
 
 case class DBInfo(dbtableQuery: String, reconColumns: List[String])
 
-case class FileToDBReconConfig(files: List[String], keyColumns: List[String], srcFileInfo: FileToDBFileInfo,
+case class FileToDBReconConfig(files: List[String], keyColumns: List[ComparableColumns], srcFileInfo: FileToDBFileInfo,
                                targetPGdb: DBInfo, targetDB2db: DBInfo, columnMappings:List[ComparableColumns])
 
 case class DbConnectionInfo(url: String, driver: String, username: String, password: String,
@@ -48,7 +48,13 @@ object FileToDbAppConfig {
       })
       ComparableColumns(x._1.toString, dbColumns.head, dbColumns.apply(1))
     }).toList
-    FileToDBReconConfig(files, keyColumns, src, targetPGdb, targetDB2db, columnMappings)
+    val keyColumnMappings = x.getObject("key-column-mapping").asScala.map( x => {
+      val dbColumns = x._2.asInstanceOf[ConfigList].asScala.toList.map( x=> {
+        x.unwrapped().toString
+      })
+      ComparableColumns(x._1.toString, dbColumns.head, dbColumns.apply(1))
+    }).toList
+    FileToDBReconConfig(files, keyColumnMappings, src, targetPGdb, targetDB2db, columnMappings)
   })
 
   val pgConnectionInfo: DbConnectionInfo = {

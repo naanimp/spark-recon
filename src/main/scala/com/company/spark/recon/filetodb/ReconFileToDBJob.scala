@@ -7,9 +7,12 @@ import com.company.spark.recon.filetofile.AppConfig.{postgresConfigJdbcFormat, p
 import com.company.spark.recon.filetofile.FileInfo
 import com.typesafe.scalalogging.LazyLogging
 import org.apache.spark.sql.functions.{col, trim}
-import org.apache.spark.sql.{Column, DataFrame, SparkSession}
+import org.apache.spark.sql.{Column, DataFrame, Row, SparkSession}
+
 import scala.collection.JavaConverters._
 import org.apache.spark.sql.functions._
+
+import scala.collection.mutable.ListBuffer
 import scala.util.Try
 
 object ReconFileToDBJob extends LazyLogging with Serializable {
@@ -88,11 +91,70 @@ object ReconFileToDBJob extends LazyLogging with Serializable {
       .save()
   }
 
+  def getUnionedSheets(fileInfo: FileInfo, fileName: String)(spark: SparkSession) = {
+    var targetDf: DataFrame = null
+    fileInfo.sheets.foldLeft(targetDf)((fdf, item) => {
+      val df = Try(loadExcelSheet(item, fileInfo.basePath + File.separator + fileName)(spark)).getOrElse(null)
+      if (fdf == null) df else if (df != null) fdf.union(df) else fdf
+    })
+  }
+
+  def reconFileToPostgres(srcDf: DataFrame, initTgtDF:DataFrame, reconConfig: FileToDBReconConfig, dbType: String)(spark: SparkSession) = {
+
+    val targetDf = reconConfig.targetPGdb.reconColumns.foldLeft(initTgtDF)((df, item) => {
+      df.withColumnRenamed(item, "t_" + item)
+    })
+
+    val column: Column = null
+
+    def joinConditions = reconConfig.keyColumns.foldLeft(column)((cl, item) => {
+      val tcnmae = if(dbType == "db2") item.db2 else item.pg
+      val df = trim(srcDf.col(item.src)).equalTo(trim(targetDf.col("t_" + tcnmae)))
+      if (cl == null) df else cl.and(trim(srcDf.col(item.src)).equalTo(trim(targetDf.col("t_" + tcnmae))))
+    })
+
+    //    def nullCheckConditions = reconConfig.keyColumns.foldLeft(column)((cl, item) => {
+    //      val df = targetDf.col("t_" + item).isNull
+    //      if (cl == null) df else cl.and(targetDf.col("t_" + item).isNull)
+    //    })
+
+    val resDf2 = srcDf.join(targetDf, joinConditions, "left_outer")
+    //.filter(nullCheckConditions)
+    resDf2.cache()
+
+    val resDF3 = addDataDifferenceColumn(resDf2, reconConfig, dbType)
+
+    val discrepancyCnt = resDF3.count()
+    resDF3.printSchema()
+    resDF3.show(100)
+
+    if (discrepancyCnt > 0) {
+      logger.warn(s"------------ Warning: Found - ${discrepancyCnt} discrepancies ---------- ")
+      logger.info(s"------------ Inserting discrepancies into sql-server database ---------- ")
+      //        saveMismatchedResults(resDf)
+      logger.info(s"------------ Inserted all discrepancies into sql-server database ---------- ")
+    } else logger.info("------------ Success: There is no discrepancies ---------- ")
+  }
+
+  def addDataDifferenceColumn(df: DataFrame, reconConfig: FileToDBReconConfig, dbType: String) = {
+    df.withColumn("data_difference",
+      explode(array(
+        reconConfig.columnMappings.map(name => {
+          val cname = s"t_${if (dbType == "db2") name.db2 else name.pg}"
+          when(col(cname) =!= col(name.pg), lit(null)).otherwise(concat_ws(" != ", col(cname), col(name.pg)))
+        }): _*
+      ))).filter(col("data_difference").isNotNull)
+  }
+
+
   /**
    * Entry point to the job.
    */
   def main(args: Array[String]): Unit = {
     implicit val spark = buildSparkSession
+    import spark.implicits._
+
+    spark.sparkContext.setLogLevel("WARN")
 
     val metadataDf = loadDatabaseTable(pgConnectionInfo, metadataQuery)(spark)
     metadataDf.show()
@@ -106,20 +168,14 @@ object ReconFileToDBJob extends LazyLogging with Serializable {
 
     //    val srcPath = "C://dev//workspace//recon//src//test//resources//HL7.xlsx"
     //    val targetPath = "C://dev//workspace//recon//src//test//resources//HL7_target.xlsx"
-    def getUnionedSheets(fileInfo: FileInfo, fileName: String) = {
-      var targetDf: DataFrame = null
-      fileInfo.sheets.foldLeft(targetDf)((fdf, item) => {
-        val df = Try(loadExcelSheet(item, fileInfo.basePath + File.separator + fileName)(spark)).getOrElse(null)
-        if (fdf == null) df else if (df != null) fdf.union(df) else fdf
-      })
-    }
+
 
     val fileList = metadataDf.collectAsList().asScala
     if (fileList.length > 1) {
       metadataDf.collectAsList().asScala.foreach(job => {
-        val srcFileName = "HL7.xlsx"
-        val targetFileName = "HL7_target.xlsx"
-        val exceptionFileName = "HL7_exception.xlsx"
+//        val srcFileName = "HL7.xlsx"
+//        val targetFileName = "HL7_target.xlsx"
+//        val exceptionFileName = "HL7_exception.xlsx"
 
         val reconConfig = fileToDBReconConfig.apply(0)
 
@@ -128,58 +184,15 @@ object ReconFileToDBJob extends LazyLogging with Serializable {
         val srcDf = loadDatabaseTable(pgConnectionInfo, metadataQuery)(spark)
           .select(reconConfig.srcFileInfo.reconColumns.map(name => col(name)): _*)
 
-        var targetDf = loadDatabaseTable(pgConnectionInfo, metadataQuery)(spark)
+        val initPgDf = loadDatabaseTable(pgConnectionInfo, metadataQuery)(spark)
           .select(reconConfig.targetPGdb.reconColumns.map(name => col(name)): _*)
 
-        targetDf = reconConfig.targetPGdb.reconColumns.foldLeft(targetDf)( (df, item) => {
-          df.withColumnRenamed(item, "t_" + item)
-        })
+        reconFileToPostgres(srcDf, initPgDf, reconConfig, "pg")(spark)
 
-        //      val exceptionDf = loadDatabaseTable(pgConnectionInfo, metadataQuery)(spark)
-        //        .select(reconConfig.targetDB2db.reconColumns.map(name => col(name)): _*)
+        val initDb2Df = loadDatabaseTable(pgConnectionInfo, metadataQuery)(spark)
+          .select(reconConfig.targetPGdb.reconColumns.map(name => col(name)): _*)
 
-//        val finalTargetDf = srcDf.except(targetDf)
-
-        val column: Column = null
-
-        def joinConditions = reconConfig.keyColumns.foldLeft(column)((cl, item) => {
-          val df = trim(srcDf.col(item)).equalTo(trim(targetDf.col("t_" + item)))
-          if (cl == null) df else cl.and(trim(srcDf.col(item)).equalTo(trim(targetDf.col("t_" + item))))
-        })
-
-        def nullCheckConditions = reconConfig.keyColumns.foldLeft(column)((cl, item) => {
-          val df = targetDf.col("t_" + item).isNull
-          if (cl == null) df else cl.and(targetDf.col("t_" + item).isNull)
-        })
-
-        val resDf2 = srcDf.join(targetDf, joinConditions, "left_outer")
-//          .filter(nullCheckConditions)
-
-        resDf2.cache()
-
-        val discrepancyCnt = 0;//resDf2.count()
-        resDf2.printSchema()
-        resDf2.show(100)
-
-        import spark.implicits._
-
-//        targetDf = targetDf.withColumn("t_table_name", lit("table_name"))
-//        val edf = srcDf.exceptAll(targetDf)
-//        edf.show()
-
-        val resDf3 = reconConfig.columnMappings.foldLeft(resDf2)( (df, item) => {
-          val cname = s"t_${item.db2}"
-          df.withColumn("check_" + item.src, when(col(cname) === col(item.pg), true).otherwise(false))
-        })
-        resDf3.show()
-
-        if (discrepancyCnt > 0) {
-          logger.warn(s"------------ Warning: Found - ${discrepancyCnt} discrepancies ---------- ")
-          logger.info(s"------------ Inserting discrepancies into sql-server database ---------- ")
-          //        saveMismatchedResults(resDf)
-          logger.info(s"------------ Inserted all discrepancies into sql-server database ---------- ")
-        } else logger.info("------------ Success: There is no discrepancies ---------- ")
-
+        reconFileToPostgres(srcDf, initDb2Df, reconConfig, "db2")(spark)
 
         System.exit(0)
       })
