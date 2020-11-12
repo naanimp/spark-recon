@@ -41,7 +41,7 @@ object ReconFileToDBJob extends LazyLogging with Serializable {
     }
   }
 
-  /**
+  /**q
    * Loads the data from postgres db.
    *
    * @return Df: DataFrame .
@@ -95,6 +95,8 @@ object ReconFileToDBJob extends LazyLogging with Serializable {
     var targetDf: DataFrame = null
     fileInfo.sheets.foldLeft(targetDf)((fdf, item) => {
       val df = Try(loadExcelSheet(item, fileInfo.basePath + File.separator + fileName)(spark)).getOrElse(null)
+      println(" item... "+ item)
+      df.show()
       if (fdf == null) df else if (df != null) fdf.union(df) else fdf
     })
   }

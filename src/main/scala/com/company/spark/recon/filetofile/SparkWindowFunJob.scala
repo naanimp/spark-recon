@@ -14,7 +14,7 @@ import org.apache.spark.sql.functions._
 import org.joda.time.DateTime
 import org.joda.time.format.DateTimeFormat
 
-object SparkWindowFunJob extends LazyLogging with Serializable {
+object JSON_Snappy_spark extends LazyLogging with Serializable {
 
   /**
    * Creates the spark session for future purpose.

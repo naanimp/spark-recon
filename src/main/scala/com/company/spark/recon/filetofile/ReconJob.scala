@@ -7,7 +7,7 @@ import org.apache.spark.sql.functions.{col, trim}
 import org.apache.spark.sql.{Column, DataFrame, SparkSession}
 import com.company.spark.recon.filetofile.AppConfig._
 
-import scala.util.Try
+import scala.util.{Failure, Success, Try}
 
 object ReconJob extends LazyLogging with Serializable {
 
@@ -57,9 +57,11 @@ object ReconJob extends LazyLogging with Serializable {
    * @return Df: DataFrame .
    */
   def loadExcelSheet(sheetName: String, filePath: String)(spark: SparkSession): DataFrame = {
+    println("sheetName" + sheetName)
     spark.read.
       format("com.crealytics.spark.excel")
       .option("header", "true")
+      .option("useHeader", "true")
       .option("dataAddress", s"'$sheetName'!A1")
       .option("treatEmptyValuesAsNulls", "false")
       .option("inferSchema", "false")
@@ -107,12 +109,22 @@ object ReconJob extends LazyLogging with Serializable {
     def getUnionedSheets(fileInfo: FileInfo, fileName: String) = {
       var targetDf: DataFrame = null
       fileInfo.sheets.foldLeft(targetDf)((fdf, item) => {
-        val df = Try(loadExcelSheet(item, fileInfo.basePath + File.separator + fileName)(spark)).getOrElse(null)
-        if (fdf == null) df else if (df != null) fdf.union(df) else fdf
+        println("fileName---> " + fileInfo.basePath +  fileName)
+
+        val df = Try(loadExcelSheet(item, fileInfo.basePath + File.separator + fileName)(spark)) match {
+          case Success(s) =>
+            s.show()
+            s
+          case Failure(f) => f.printStackTrace(); null
+        }
+
+        if (fdf == null) df else if (df != null) {
+          df.show(false)
+          fdf.union(df)
+        } else { fdf }
       })
     }
 
-    Array().length
 
     //    val fileList = metadataDf.collectAsList().asScala
     //    if (fileList.length > 1) logger.error(s"Found multiple records for the code : ${args(0)}")
